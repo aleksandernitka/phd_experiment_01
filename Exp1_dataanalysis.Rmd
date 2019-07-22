@@ -1,0 +1,625 @@
+er---
+title: "SOR/RR RT Experiment 1"
+author: "Aleksander W. Nitka"
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen=999)
+```
+
+```{r, load files, echo=FALSE, message=FALSE}
+
+# get filenames
+files = list.files(path = "./data/xlsx", pattern = "\\.xlsx")
+for (i in 1:length(files)) { files[i] = paste("data/xlsx", files[i], sep = '/')}
+# list of dfs
+dfs = c()
+# sample data
+sampledata = data.frame(matrix(nrow = length(files), ncol = 3))
+names(sampledata) = c('ss','age','gender')
+
+library("readxl")
+
+for (i in 1:length(files)){
+  
+  # get data from excel
+  tmp.file = read_excel(path = files[i])
+  # get ssid from filename
+  tmp.name = strsplit(files[i],'/')[[1]][3]
+  tmp.name = strsplit(tmp.name, '_')[[1]][1]
+  tmp.name = paste('ssdata', tmp.name, sep = '_')
+
+  # add name to dfs
+  dfs = append(dfs, tmp.name)
+  
+  # get sample data
+  sampledata$ss[i] = strsplit(tmp.name, '_')[[1]][2]
+  sampledata$age[i] = as.numeric(tmp.file$target_type2[tmp.file$img2r == 'age'][2])
+  sampledata$gender[i] = as.character(tmp.file$target_type2[tmp.file$img2r == 'gender'])[2]
+  
+  # only keep trial data
+  tmp.file = subset.data.frame(tmp.file, is.na(tmp.file$trial_type1) == FALSE)
+  
+  # Target type; rename old/new to a/b
+  tmp.file$target_type2 = as.character(tmp.file$target_type2)
+  for (d in 1:nrow(tmp.file)) {
+    
+    if (tmp.file$target_type2[d] == 'new'){
+      tmp.file$target_type2[d] = 'B'
+      
+    }
+    else if (tmp.file$target_type2[d] == 'old'){
+      tmp.file$target_type2[d] = 'A'
+    }
+  }
+  tmp.file$target_type2 = as.factor(tmp.file$target_type2)
+  
+  # Some data have an extra column, 
+  # which is redundant as it referes to the RT during the S1, 
+  # there were no targets in S1, so not RT
+  
+  rm_s1 = c('s1_key_resp.rt_mean', 's1_key_resp.rt_raw', 's1_key_resp.rt_std')
+  if (ncol(tmp.file) == 82){
+    tmp.file = tmp.file[ , !(names(tmp.file) %in% rm_s1)]
+  }
+  
+  # Re-creating the x,y locations into one entry for s2
+  tmp.file$s2_tar_loc_raw <- paste(tmp.file$s2_tar_loc_raw, tmp.file$s2_tar_onset_mean, sep = ",")
+  
+  # Shifting all column names which has been aftected by the x,y separation for s2
+  for (n in length(names(tmp.file)):1) {
+    if (n >= 62) {
+      names(tmp.file)[n] = names(tmp.file)[n-1]
+    }
+  }
+  
+  # Re-creating the x,y locs into one entry for s3
+  tmp.file$s3_tar_loc_raw <- paste(tmp.file$s3_tar_loc_raw, tmp.file$s3_tar_onset_mean, sep = ",")
+  
+  # Shifting column names again
+  for (m in length(names(tmp.file)):1) {
+    if (m >= 75) {
+      if (m <= (length(names(tmp.file)) - 1)){
+        names(tmp.file)[m] = names(tmp.file)[m-1]
+      }}}
+  
+  names(tmp.file)[length(tmp.file)] = "order" #last column name
+  tmp.file = tmp.file[ -c(75,62) ] #remove the columns with y values, which are now redundant. 
+  
+  # Some columns are not required, these are to be removed:
+  colrm = c('img2r', 'img3r', 'response_2', 
+  'response_3', 'response_1', 'a', 'b', 'isi3', 
+  'exp3', 'img1r', 'isi', 'img1l', 'exp', 'img3l', 'img2l', 'S1LeftFx_mean', 
+  'S1LeftFx_std', 'S1RightFx_mean', 'S1RightFx_std', 'S2LeftFx_mean', 'S2LeftFx_std', 
+  'S2RightFx_mean', 'S2RightFx_std', 'S3LeftFx_mean', 'S3LeftFx_std', 'S3RightFx_mean', 
+  'S3RightFx_std', 'heldFixation1_mean', 'heldFixation2_mean', 'heldFixation3_mean', 
+  's1_key_resp.corr_mean', 's1_key_resp.corr_std', 's1_key_resp.rt_mean', 
+  's1_key_resp.rt_std', 's2_gauss_jitter_mean', 's2_gauss_jitter_std', 
+  's2_key_resp.corr_mean', 's2_key_resp.corr_std', 's2_key_resp.rt_mean', 
+  's2_key_resp.rt_std', 's2_tar_onset_mean', 's2_tar_onset_std',  
+  's3_key_resp.corr_mean', 's3_key_resp.corr_std', 's3_key_resp.rt_mean', 
+  's3_key_resp.rt_std', 's3_tar_onset_mean', 's3_tar_onset_std');
+  
+  tmp.file = tmp.file[ , !(names(tmp.file) %in% colrm)]
+  tmp.file = subset.data.frame(tmp.file, is.na(tmp.file$trial_type1) == FALSE)
+  
+  # save df
+  assign(tmp.name, tmp.file)
+}
+
+remove(i, tmp.file, tmp.name, colrm, d, m, n, rm_s1)
+
+```
+
+```{r, Accuracy Response, echo=FALSE}
+
+sampledata$overall_acc = NA
+
+for (s in 1:length(dfs)) {
+
+  tmp = eval(parse(text = dfs[s]))
+  
+  tmp$trial_accurate = 0
+  
+  # only of s2 and s3 responses were accurate the trial is accurate
+  tmp$trial_accurate[tmp$s2_key_resp.corr_raw == 1 & tmp$s3_key_resp.corr_raw == 1] = 1
+  
+  sampledata$overall_acc[s] = sum(tmp$trial_accurate)/nrow(tmp)
+  assign(dfs[s], tmp)
+
+}
+
+remove(tmp)
+```
+
+### RT Analysis
+
+```{r, echo=FALSE}
+RT_means = data.frame(matrix(ncol = 6))
+names(RT_means) = c("SS","RT","TrialType","TargetType","Onset","row_descr")
+```
+
+```{r}
+
+for (s in 1:length(dfs)) {
+
+  tmp = eval(parse(text = dfs[s]))
+  
+  # Make a B data frame to collect the means for each ss 
+  # (tmp_rt) and then append this to the 'main' DF
+  
+  tmp_rt = data.frame(matrix(NA, nrow = 12, ncol = 6))
+  names(tmp_rt) = c("SS","RT","TrialType","TargetType","Onset","row_descr")
+  
+  tmp_rt$SS = strsplit(dfs[s], '_')[[1]][2]
+  
+  tmp_rt[1,2] = mean(subset(tmp$s2_key_resp.rt_raw, tmp$trial_type1 == 'sor' & 
+                tmp$target_type2 == 'A' & tmp$target_onset == 0 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[1,3:6] = c('sor','A', 0, 'sor_to_0')
+  tmp_rt[2,2] = mean(subset(tmp$s2_key_resp.rt_raw, tmp$trial_type1 == 'sor' & 
+                tmp$target_type2 == 'A' & tmp$target_onset == 1 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[2,3:6] = c('sor','A', 1, 'sor_to_1')
+  tmp_rt[3,2] = mean(subset(tmp$s2_key_resp.rt_raw, tmp$trial_type1 == 'sor' & 
+                tmp$target_type2 == 'A' & tmp$target_onset == 2 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[3,3:6] = c('sor','A', 2, 'sor_to_2')
+  tmp_rt[4,2] = mean(subset(tmp$s2_key_resp.rt_raw, tmp$trial_type1 == 'sor' & 
+                tmp$target_type2 == 'B' & tmp$target_onset == 0 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[4,3:6] = c('sor','B', 0, 'sor_tn_0')
+  tmp_rt[5,2] = mean(subset(tmp$s2_key_resp.rt_raw, tmp$trial_type1 == 'sor' & 
+                tmp$target_type2 == 'B' & tmp$target_onset == 1 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[5,3:6] = c('sor','B', 1, 'sor_tn_1')
+  tmp_rt[6,2] = mean(subset(tmp$s2_key_resp.rt_raw, tmp$trial_type1 == 'sor' & 
+                tmp$target_type2 == 'B' & tmp$target_onset == 2 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[6,3:6] = c('sor','B', 2, 'sor_tn_2')
+  
+  
+  tmp_rt[7,2] = mean(subset(tmp$s3_key_resp.rt_raw, tmp$trial_type1 == 'rr' & 
+                tmp$target_type2 == 'A' & tmp$target_onset == 0 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[7,3:6] = c('rr','A', 0, 'rr_to_0')
+  tmp_rt[8,2] = mean(subset(tmp$s3_key_resp.rt_raw, tmp$trial_type1 == 'rr' & 
+                tmp$target_type2 == 'A' & tmp$target_onset == 1 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[8,3:6] = c('rr','A', 1, 'rr_to_1')
+  tmp_rt[9,2] = mean(subset(tmp$s3_key_resp.rt_raw, tmp$trial_type1 == 'rr' & 
+                tmp$target_type2 == 'A' & tmp$target_onset == 2 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[9,3:6] = c('rr','A', 2, 'rr_to_2')
+  tmp_rt[10,2] = mean(subset(tmp$s3_key_resp.rt_raw, tmp$trial_type1 == 'rr' & 
+                tmp$target_type2 == 'B' & tmp$target_onset == 0 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[10,3:6] = c('rr','B', 0, 'rr_tn_0')
+  tmp_rt[11,2] = mean(subset(tmp$s3_key_resp.rt_raw, tmp$trial_type1 == 'rr' & 
+                tmp$target_type2 == 'B' & tmp$target_onset == 1 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[11,3:6] = c('rr','B', 1, 'rr_tn_1')
+  tmp_rt[12,2] = mean(subset(tmp$s3_key_resp.rt_raw, tmp$trial_type1 == 'rr' & 
+                tmp$target_type2 == 'B' & tmp$target_onset == 2 & tmp$trial_accurate == 1), na.rm = TRUE)
+  tmp_rt[12,3:6] = c('rr','B', 2, 'rr_tn_2')
+  
+  # Update the 'main' DF for RT
+  RT_means = rbind.data.frame(RT_means, tmp_rt)
+}
+
+#remove(s,x, tmp, tmp_rt)
+RT_means = subset.data.frame(RT_means, is.na(RT_means$SS) == FALSE)
+remove(tmp, tmp_rt)
+```
+
+
+```{r RT ANOVA, echo= FALSE}
+
+source('outlierlbl.R')
+library(ez)
+library(car)
+
+RT_means_SOR = subset(RT_means, RT_means$TrialType == 'sor')
+RT_means_RR = subset(RT_means, RT_means$TrialType == 'rr')
+
+outl_sor = outlierlbl(RT_means_SOR$RT, plot = 1) # Resulted in 0 outliers, but data is NOT normally distributed
+outl_rr = outlierlbl(RT_means_RR$RT, plot = 1) # Resulted in 0 outliers, but data is normally distributed
+
+
+# Inverse transform SOR RT
+RT_means_SOR$RT = log(RT_means_SOR$RT)
+outl_sor = outlierlbl(RT_means_SOR$RT, plot = 1)
+
+# Arguments for EZANOVA
+# data - Data frame containing the data to be analyzed.
+# dv - .() object specifying the column in data that contains the dependent variable. Values in this column must be numeric.
+# wid - .() object specifying the column in data that contains the variable specifying the case/Ss identifier.
+# within - Optional .() object specifying one or more columns in data that contain predictor variables that are manipulated (or observed) within-Ss.
+# between - Optional .() object specifying one or more columns in data that contain predictor variables that are manipulated (or observed) between-Ss.
+RT_means_SOR$SS = as.factor(RT_means_SOR$SS)
+RT_means_SOR$TrialType = as.factor(RT_means_SOR$TrialType)
+RT_means_SOR$TargetType = as.factor(RT_means_SOR$TargetType)
+ezaov.rt.sor = ezANOVA(data = RT_means_SOR, dv = .(RT), wid = .(SS), within = .(Onset,TargetType))
+
+RT_means_RR$SS = as.factor(RT_means_RR$SS)
+RT_means_RR$TrialType = as.factor(RT_means_RR$TrialType)
+RT_means_RR$TargetType = as.factor(RT_means_RR$TargetType)
+ezaov.rt.rr = ezANOVA(data = RT_means_RR, dv = .(RT), wid = .(SS), within = .(Onset,TargetType))
+
+# Run on inverse transformed data
+ezaov.rt.sor$`Mauchly's Test for Sphericity` # for factors with more than 2 levels
+leveneTest(RT ~ TargetType, data = RT_means_SOR)
+ezaov.rt.sor$`Sphericity Corrections`
+ezaov.rt.sor$ANOVA
+
+
+ezaov.rt.rr$`Mauchly's Test for Sphericity`
+leveneTest(RT ~ TargetType, data = RT_means_RR)
+ezaov.rt.rr$ANOVA
+
+```
+
+```{r Preparing for Plotting, echo=FALSE}
+
+# make sure that we use inverse tx data for plots, put both conditions into RT_means
+
+RT_means = rbind(RT_means_RR, RT_means_SOR)
+
+RT_means$TrialType = as.factor(RT_means$TrialType)
+RT_means$TargetType = as.factor(RT_means$TargetType)
+RT_means$Onset = as.factor(RT_means$Onset)
+
+RT_means_for_plots = data.frame(matrix(nrow = 12, ncol = 5))
+names(RT_means_for_plots) = c('Condition','Onset','Target','M','SD')
+RT_means_for_plots$Condition[1:6] = 'sor'
+RT_means_for_plots$Condition[7:12] = 'rr'
+RT_means_for_plots$Onset = c(rep(0,2), rep(1,2), rep(2,2))
+RT_means_for_plots$Target = c('A','B')
+
+for (i in 1:nrow(RT_means_for_plots)) {
+  RT_means_for_plots$M[i] = mean(subset(RT_means$RT, RT_means$TrialType == RT_means_for_plots$Condition[i] & RT_means$Onset == RT_means_for_plots$Onset[i] & RT_means$TargetType == RT_means_for_plots$Target[i]))
+  RT_means_for_plots$SD[i] = sd(subset(RT_means$RT, RT_means$TrialType == RT_means_for_plots$Condition[i] & RT_means$Onset == RT_means_for_plots$Onset[i] & RT_means$TargetType == RT_means_for_plots$Target[i]))
+  
+}
+
+```
+
+```{r RT Plotting, echo=FALSE}
+
+library(ggplot2)
+library(jtools)
+RT_means_for_plots_rr = subset(RT_means_for_plots, RT_means_for_plots$Condition == 'rr')
+RT_means_for_plots_sor = subset(RT_means_for_plots, RT_means_for_plots$Condition == 'sor')
+
+plt_rt_rr = ggplot(data = RT_means_for_plots_rr, aes(x = Onset, y = M, group = Target)) + 
+  geom_point(aes(x = Onset, y = M, shape = Target), size = 3, position=position_dodge(0.05)) +
+  geom_line(aes(linetype = Target)) + 
+  geom_errorbar(aes(ymin=M-SD, ymax=M+SD), width=.1, position=position_dodge(0.05), inherit.aes = TRUE) +
+  theme_apa() + xlab('Dot Onset Time (s)') + ylab('Mean RT (s)') + theme(text = element_text(size=12), axis.text = element_text(size = 12))
+ggsave('Exp01_RT_RR.png', plot = last_plot(), scale = 1, dpi = 300)
+
+
+plt_rt_sor = ggplot(data = RT_means_for_plots_sor, aes(x = Onset, y = M, group = Target)) + 
+  geom_point(aes(x = Onset, y = M, shape = Target), size = 3, position=position_dodge(0.05)) +
+  geom_line(aes(linetype = Target)) + 
+  geom_errorbar(aes(ymin=M-SD, ymax=M+SD), width=.1, position=position_dodge(0.05), inherit.aes = TRUE) +
+  theme_apa() + xlab('Dot Onset Time (s)') + ylab('Mean log(RT)') + theme(text = element_text(size=12), axis.text = element_text(size = 12))
+ggsave('Exp01_RT_SOR.png', plot = last_plot(), scale = 1, dpi = 300)
+
+
+```
+
+```{r ET Recode left/right to A/B}
+
+# for rejected trials stats
+sampledata$ET_rejectedOverall = NA 
+sampledata$ET_rejectSOR = NA
+sampledata$ET_rejectRR = NA
+
+for (s in 1:length(dfs)) {
+
+  tmp = eval(parse(text = dfs[s]))
+  
+  tmp$test_fix_A = NA
+  tmp$test_fix_B = NA
+  tmp$D2 = NA
+  tmp$TargetET = NA
+  
+  for (line in 1:nrow(tmp)) {
+    
+
+    if (tmp$trial_type1[line] == 'sor'){
+      # For SOR the Test is S2
+      if (tmp$trial_type2[line] == 'ab'){
+        tmp$test_fix_A[line] = tmp$S2LeftFx_raw[line]
+        tmp$test_fix_B[line] = tmp$S2RightFx_raw[line]
+      }
+      if (tmp$trial_type2[line] == 'ba'){
+        tmp$test_fix_B[line] = tmp$S2LeftFx_raw[line]
+        tmp$test_fix_A[line] = tmp$S2RightFx_raw[line]
+      }
+      tmp$D2[line] = (tmp$test_fix_B[line] - tmp$test_fix_A[line]) / (tmp$test_fix_B[line] + tmp$test_fix_A[line])
+    }
+    
+    # For RR the Test is S3 
+    if (tmp$trial_type1[line] == 'rr'){
+      if (tmp$trial_type2[line] == 'ab'){
+        tmp$test_fix_A[line] = tmp$S3LeftFx_raw[line]
+        tmp$test_fix_B[line] = tmp$S3RightFx_raw[line]
+      }
+      if (tmp$trial_type2[line] == 'ba'){
+        tmp$test_fix_B[line] = tmp$S3LeftFx_raw[line]
+        tmp$test_fix_A[line] = tmp$S3RightFx_raw[line]
+      }
+      tmp$D2[line] = (tmp$test_fix_A[line] - tmp$test_fix_B[line]) / (tmp$test_fix_B[line] + tmp$test_fix_A[line])
+    }
+    
+
+    
+  }
+  
+  # establish whether there was an effect of target location and primiing from experimental design
+  # the target can be (1) on old item or (2) new item 
+  # The effcts can SUM (s) or Counter (C) or be neutral (N)
+  tmp$TargetET[tmp$trial_type1 == 'sor' & tmp$trial_type2 == 'ab' & tmp$target_type2 == 'A'] = 'C' 
+  tmp$TargetET[tmp$trial_type1 == 'sor' & tmp$trial_type2 == 'ba' & tmp$target_type2 == 'A'] = 'C'
+  tmp$TargetET[tmp$trial_type1 == 'sor' & tmp$trial_type2 == 'ab' & tmp$target_type2 == 'B'] = 'S'
+  tmp$TargetET[tmp$trial_type1 == 'sor' & tmp$trial_type2 == 'ba' & tmp$target_type2 == 'B'] = 'S' 
+  
+  tmp$TargetET[tmp$trial_type1 == 'rr' & tmp$trial_type2 == 'ab' & tmp$target_type2 == 'B'] = 'C'  
+  tmp$TargetET[tmp$trial_type1 == 'rr' & tmp$trial_type2 == 'ba' & tmp$target_type2 == 'B'] = 'C' 
+  tmp$TargetET[tmp$trial_type1 == 'rr' & tmp$trial_type2 == 'ab' & tmp$target_type2 == 'A'] = 'S'
+  tmp$TargetET[tmp$trial_type1 == 'rr' & tmp$trial_type2 == 'ba' & tmp$target_type2 == 'A'] = 'S'   
+  tmp$TargetET[tmp$target_type2 == 'nt'] = 'N'
+  
+  # calculate lost trials
+  tmp$ET_rejectTrial = 0
+  tmp$ET_rejectTrial[tmp$test_fix_A == 0 & tmp$test_fix_B == 0] = 1
+  sampledata$ET_rejectedOverall[s] = nrow(subset(tmp, ET_rejectTrial==1)) / nrow(tmp)
+  sampledata$ET_rejectSOR[s] = nrow(subset(tmp, ET_rejectTrial == 1 & trial_type1 == 'sor')) / nrow(subset(tmp, trial_type1 == 'sor'))
+  sampledata$ET_rejectRR[s] = nrow(subset(tmp, ET_rejectTrial == 1 & trial_type1 == 'rr')) / nrow(subset(tmp, trial_type1 == 'rr'))
+  
+  # remove rejected trials
+  tmp = subset(tmp, tmp$ET_rejectTrial == 0)
+  
+  assign(dfs[s], tmp)
+}
+
+
+remove(line, s, tmp)
+```
+
+```{r, echo=FALSE}
+
+# Create a main DF to which each subjects' data will be appended - this one has only one value for fixation and it's calcualted as a difference btw A and B (B - A) and it's normalised
+ET_means = data.frame(matrix(ncol = 5, nrow = length(dfs)))
+names(ET_means) = c("SS", "D2", "TrialType", "Onset", "TargetType")
+
+for (s in 1:length(dfs)) {
+  
+  tmp = eval(parse(text = dfs[s]))
+  
+  # Because NT trials show onset as 0 this may confuse the analysis, thereore all NT trials have Onset = nt
+  tmp$target_onset[tmp$target_type == 'nt'] = 'nt'
+  
+  et_tmp = data.frame(matrix(nrow = 2*3*2, ncol = 5))
+  names(et_tmp) = names(ET_means)
+  et_tmp$SS = strsplit(dfs[s], '_')[[1]][2]  
+  et_tmp$TrialType = c(rep('sor',6), rep('rr',6))
+  et_tmp$TargetType = c(rep('S',3), rep('C',3))
+  et_tmp$Onset = c(0,1,2)
+  
+  # when Target is N there are no onsets
+  et_tmp = rbind(et_tmp, c(strsplit(dfs[s], '_')[[1]][2],NA,'sor','nt','N'))
+  et_tmp = rbind(et_tmp, c(strsplit(dfs[s], '_')[[1]][2],NA,'rr','nt','N'))
+  
+  for (i in 1:nrow(et_tmp)) {
+    et_tmp$D2[i] = as.numeric(mean( subset( tmp$D2, 
+                                 tmp$trial_type1 == et_tmp$TrialType[i] & 
+                                   tmp$target_onset == et_tmp$Onset[i] & 
+                                   tmp$TargetET == et_tmp$TargetType[i]), na.rm = 1 ))
+    
+  }
+  
+  ET_means = rbind(ET_means, et_tmp)
+}
+
+remove(et_tmp)
+ET_means = subset.data.frame(ET_means, is.na(ET_means$SS) == FALSE)
+ET_means$D2 = as.numeric(ET_means$D2)
+
+```
+
+```{r, ANOVA EM}
+
+library(ez)
+library(car)
+source('outlierlbl.R')
+
+
+# Arguments for EZANOVA
+# data - Data frame containing the data to be analyzed.
+# dv - .() object specifying the column in data that contains the dependent variable. Values in this column must be numeric.
+# wid - .() object specifying the column in data that contains the variable specifying the case/Ss identifier.
+# within - Optional .() object specifying one or more columns in data that contain predictor variables that are manipulated (or observed) within-Ss.
+# between - Optional .() object specifying one or more columns in data that contain predictor variables that are manipulated (or observed) between-Ss.
+
+# Outliers and norm for all data
+outl_et = outlierlbl(ET_means$D2, plot = 1)
+# subset of trials = sor / rr
+ET_means_sor = subset(ET_means, ET_means$TrialType == 'sor')
+ET_means_rr = subset(ET_means, ET_means$TrialType == 'rr')
+# get only trials with targets as those will fit anova 
+ET_means_sor_targets = subset(ET_means_sor, ET_means_sor$TargetType != 'N')
+ET_means_rr_targets = subset(ET_means_rr, ET_means_rr$TargetType != 'N')
+
+# ANOVA for SOR, only target trials
+outl_et_sor = outlierlbl(ET_means_sor_targets$D2, plot = 1)
+outl_et_rr = outlierlbl(ET_means_rr_targets$D2, plot = 1)
+
+# One-sample - tests
+source('tt.os.R')
+
+
+```
+```{r one sample tests for SOR and RR}
+
+# first get means that collapse, onset and target type
+ET_means_OStest = data.frame(matrix(ncol = 3))
+names(ET_means_OStest) = c("SS", "D2", "TrialType")
+
+for (s in 1:length(dfs)) {
+  
+  tmp = eval(parse(text = dfs[s]))
+  
+  # Because NT trials show onset as 0 this may confuse the analysis, thereore all NT trials have Onset = nt
+  tmp$target_onset[tmp$target_type == 'nt'] = 'nt'
+  
+  et_tmp = data.frame(matrix(nrow = 2, ncol = 3))
+  names(et_tmp) = names(ET_means_OStest)
+  et_tmp$SS = strsplit(dfs[s], '_')[[1]][2]  
+  et_tmp$TrialType = c('sor','rr')
+
+  
+  for (i in 1:nrow(et_tmp)) {
+    et_tmp$D2[i] = as.numeric(mean( subset( tmp$D2, 
+                                 tmp$trial_type1 == et_tmp$TrialType[i]), na.rm = 1 ))
+    
+  }
+  
+  ET_means_OStest = rbind(ET_means_OStest, et_tmp)
+}
+
+remove(et_tmp)
+ET_means_OStest = subset.data.frame(ET_means_OStest, is.na(ET_means_OStest$SS) == FALSE)
+ET_means_OStest$D2 = as.numeric(ET_means_OStest$D2)
+
+ET_means_OStest_RR = subset(ET_means_OStest, ET_means_OStest$TrialType == 'rr')
+ET_means_OStest_OR = subset(ET_means_OStest, ET_means_OStest$TrialType == 'sor')
+
+source('tt.os.R')
+source('tt.ps.R')
+
+allTrials_OS_OR = tt.os(ET_means_OStest_OR$D2, mu = 0, N = length(dfs), DV = 'D2 for SOR')
+allTrials_OS_RR = tt.os(ET_means_OStest_RR$D2, mu = 0, N = length(dfs), DV = 'D2 for RR')
+
+allTrials_PS_RRvOR = tt.ps(ET_means_OStest_RR$D2, ET_means_OStest_OR$D2, N = length(dfs), DV1 = 'D2 for RR', DV2 = 'D2 for SOR')
+
+
+# plot
+
+ET_SOR_alldata_M = mean(ET_means_OStest_OR$D2)
+ET_SOR_alldata_SD = sd(ET_means_OStest_OR$D2)
+ET_SOR_alldata = data.frame(cbind(ET_SOR_alldata_M, ET_SOR_alldata_SD))
+names(ET_SOR_alldata) = c('D2','SD')
+ET_SOR_alldata$TrialType = 'sor'
+
+ET_RR_alldata_M = mean(ET_means_OStest_RR$D2)
+ET_RR_alldata_SD = sd(ET_means_OStest_RR$D2)
+ET_RR_alldata = data.frame(cbind(ET_RR_alldata_M, ET_RR_alldata_SD))
+names(ET_RR_alldata) = c('D2','SD')
+ET_RR_alldata$TrialType = 'rr'
+
+ET_alldata = rbind(ET_SOR_alldata, ET_RR_alldata)
+
+plt_et_main = ggplot(data = ET_alldata, aes(x = TrialType, y = D2)) + 
+  geom_point(aes(x = TrialType, y = D2), size = 3, position=position_dodge(0.05)) +
+  geom_errorbar(aes(ymin=D2-SD, ymax=D2+SD), width=.1, position=position_dodge(0.05), inherit.aes = TRUE) +
+  theme_apa() + xlab('Condition') + ylab('Mean D2') + theme(text = element_text(size=12), axis.text = element_text(size = 12))
+ggsave('Exp01_ET_Main_alldata.png', plot = last_plot(), scale = 1, dpi = 300)
+```
+
+```{r ttest for non-targets}
+
+ET_means_OStest_nts = data.frame(matrix(ncol = 3))
+names(ET_means_OStest_nts) = c("SS", "D2", "TrialType")
+
+for (s in 1:length(dfs)) {
+  
+  tmp = eval(parse(text = dfs[s]))
+  
+  # Because NT trials show onset as 0 this may confuse the analysis, thereore all NT trials have Onset = nt
+  tmp$target_onset[tmp$target_type == 'nt'] = 'nt'
+  
+  et_tmp = data.frame(matrix(nrow = 2, ncol = 3))
+  names(et_tmp) = names(ET_means_OStest)
+  et_tmp$SS = strsplit(dfs[s], '_')[[1]][2]  
+  et_tmp$TrialType = c('sor','rr')
+
+  
+  for (i in 1:nrow(et_tmp)) {
+    et_tmp$D2[i] = as.numeric(mean( subset( tmp$D2, 
+                                 tmp$trial_type1 == et_tmp$TrialType[i] & tmp$target_type == 'nt'), na.rm = 1 ))
+    
+  }
+  
+  ET_means_OStest_nts = rbind(ET_means_OStest_nts, et_tmp)
+}
+
+remove(et_tmp)
+ET_means_OStest_nts = subset.data.frame(ET_means_OStest_nts, is.na(ET_means_OStest_nts$SS) == FALSE)
+ET_means_OStest_nts$D2 = as.numeric(ET_means_OStest_nts$D2)
+
+ET_means_OStest_nts_RR = subset(ET_means_OStest_nts, ET_means_OStest_nts$TrialType == 'rr')
+ET_means_OStest_nts_OR = subset(ET_means_OStest_nts, ET_means_OStest_nts$TrialType == 'sor')
+
+source('tt.os.R')
+source('tt.ps.R')
+
+allTrials_OS_nts_OR = tt.os(ET_means_OStest_nts_OR$D2, mu = 0, N = length(dfs), DV = 'D2 for SOR')
+allTrials_OS_nts_RR = tt.os(ET_means_OStest_nts_RR$D2, mu = 0, N = length(dfs), DV = 'D2 for RR')
+
+allTrials_PS_nts_RRvOR = tt.ps(ET_means_OStest_nts_RR$D2, ET_means_OStest_nts_OR$D2, N = length(dfs), DV1 = 'D2 for RR', DV2 = 'D2 for SOR')
+
+```
+
+```{r, data for plots}
+ET_means_for_plots = data.frame(matrix(ncol = 5, nrow = 2*3*2))
+names(ET_means_for_plots) = c("D2", "SD", "TrialType", "Onset", "TargetType")
+ET_means_for_plots$TrialType = c(rep('sor',6), rep('rr',6))
+ET_means_for_plots$TargetType = c(rep('S',3), rep('C',3))
+ET_means_for_plots$Onset = c(0,1,2)
+  
+# when Target is N there are no onsets
+ET_means_for_plots = rbind(ET_means_for_plots, c('01',NA,'sor','nt','N'))
+ET_means_for_plots = rbind(ET_means_for_plots, c('01',NA,'rr','nt','N'))
+
+for (i in 1:nrow(ET_means_for_plots)){
+  ET_means_for_plots$D2[i] = mean(subset(ET_means$D2, ET_means$TrialType == ET_means_for_plots$TrialType[i] & 
+                                           ET_means$Onset == ET_means_for_plots$Onset[i] & 
+                                           ET_means$TargetType == ET_means_for_plots$TargetType[i]))
+  ET_means_for_plots$SD[i] = sd(subset(ET_means$D2, ET_means$TrialType == ET_means_for_plots$TrialType[i] & 
+                                           ET_means$Onset == ET_means_for_plots$Onset[i] & 
+                                           ET_means$TargetType == ET_means_for_plots$TargetType[i]))
+}
+
+
+```
+
+```{r plots for ET}
+ET_means_for_plots_rr = subset(ET_means_for_plots, ET_means_for_plots$TrialType == 'rr')
+ET_means_for_plots_sor = subset(ET_means_for_plots, ET_means_for_plots$TrialType == 'sor')
+
+ET_means_for_plots_rr$D2 = as.numeric(ET_means_for_plots_rr$D2)
+ET_means_for_plots_rr$SD = as.numeric(ET_means_for_plots_rr$SD)
+ET_means_for_plots_sor$D2 = as.numeric(ET_means_for_plots_sor$D2)
+ET_means_for_plots_sor$SD = as.numeric(ET_means_for_plots_sor$SD)
+
+plt_et_rr = ggplot(data = ET_means_for_plots_rr, aes(x = Onset, y = D2, group = TargetType)) + 
+  geom_point(aes(x = Onset, y = D2, shape = TargetType), size = 3, position=position_dodge(0.05)) +
+  geom_line(aes(linetype = TargetType)) + 
+  geom_errorbar(aes(ymin=D2-SD, ymax=D2+SD), width=.1, position=position_dodge(0.05), inherit.aes = TRUE) +
+  theme_apa() + xlab('Dot Onset Time (s)') + ylab('Mean D2') + theme(text = element_text(size=12), axis.text = element_text(size = 12))
+ggsave('Exp01_ET_RR.png', plot = last_plot(), scale = 1, dpi = 300)
+
+plt_et_sor = ggplot(data = ET_means_for_plots_sor, aes(x = Onset, y = D2, group = TargetType)) + 
+  geom_point(aes(x = Onset, y = D2, shape = TargetType), size = 3, position=position_dodge(0.05)) +
+  geom_line(aes(linetype = TargetType)) + 
+  geom_errorbar(aes(ymin=D2-SD, ymax=D2+SD), width=.1, position=position_dodge(0.05), inherit.aes = TRUE) +
+  theme_apa() + xlab('Dot Onset Time (s)') + ylab('Mean D2') + theme(text = element_text(size=12), axis.text = element_text(size = 12))
+ggsave('Exp01_ET_SOR.png', plot = last_plot(), scale = 1, dpi = 300)
+
+ET_means_nts = rbind(subset(ET_means_for_plots, ET_means_for_plots$TargetType == 'N'))
+ET_means_nts$D2 = as.numeric(ET_means_nts$D2)
+ET_means_nts$SD = as.numeric(ET_means_nts$SD)
+
+plt_et_nts = ggplot(data = ET_means_nts, aes(x = TrialType, y = D2)) + 
+  geom_point(aes(x = TrialType, y = D2), size = 3, position=position_dodge(0.05)) +
+  geom_errorbar(aes(ymin=D2-SD, ymax=D2+SD), width=.1, position=position_dodge(0.05), inherit.aes = TRUE) +
+  theme_apa() + xlab('Condition') + ylab('Mean D2') + theme(text = element_text(size=12), axis.text = element_text(size = 12))
+ggsave('Exp01_ET_NTs.png', plot = last_plot(), scale = 1, dpi = 300)
+
+```
+
+
